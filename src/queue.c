@@ -28,7 +28,7 @@ struct pcb_t *dequeue(struct queue_t *q)
         // Tìm phần tử có độ ưu tiên cao nhất
         int highest_priority_index = 0;
         for(int i = 1; i < q->size; i++) {
-            if(q->proc[i]->priority > q->proc[highest_priority_index]->priority) {
+            if(q->proc[i]->priority < q->proc[highest_priority_index]->priority) {
                 highest_priority_index = i;
             }
         }

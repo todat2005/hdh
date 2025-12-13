@@ -7,8 +7,7 @@
  * personal permission to use and modify the Licensed Source Code
  * for the sole purpose of studying while attending the course CO2018.
  */
-
-// #ifdef MM_PAGING
+//#ifdef MM_PAGING
 /*
  * System Library
  * Memory Module Library libmem.c 
@@ -30,6 +29,7 @@ static pthread_mutex_t mmvm_lock = PTHREAD_MUTEX_INITIALIZER;
  *@rg_elmt: new region
  *
  */
+// Thêm một region mới vào danh sách region rãnh của VMA
 int enlist_vm_freerg_list(struct mm_struct *mm, struct vm_rg_struct *rg_elmt)
 {
   struct vm_rg_struct *rg_node = mm->mmap->vm_freerg_list;
@@ -51,6 +51,7 @@ int enlist_vm_freerg_list(struct mm_struct *mm, struct vm_rg_struct *rg_elmt)
  *@rgid: region ID act as symbol index of variable
  *
  */
+// Lấy region theo ID (dùng làm chỉ số trong bảng symbol của biến)
 struct vm_rg_struct *get_symrg_byid(struct mm_struct *mm, int rgid)
 {
   if (rgid < 0 || rgid > PAGING_MAX_SYMTBL_SZ)
@@ -64,8 +65,27 @@ struct vm_rg_struct *get_symrg_byid(struct mm_struct *mm, int rgid)
  *@vmaid: ID vm area to alloc memory region
  *@rgid: memory region ID (used to identify variable in symbole table)
  *@size: allocated size
- *@alloc_addr: address of allocated memory region
+ *@alloc_addr: address of allocated memory region (out)
  *
+ * Mô tả (Tiếng Việt):
+ *  - Hàm này cấp phát một vùng nhớ ảo cho tiến trình `caller` trong VMA
+ *    chỉ định bởi `vmaid` và ghi thông tin vùng vào `symrgtbl[rgid]`.
+ *  - Thứ tự xử lý:
+ *    1) Khóa mutex để bảo toàn thao tác quản lý vùng ảo.
+ *    2) Tìm một region rỗng phù hợp trong `cur_vma->vm_freerg_list` bằng
+ *       `get_free_vmrg_area`. Nếu tìm được thì ghi vào `symrgtbl` và trả về.
+ *    3) Nếu không tìm được, dò lại `vm_freerg_list` thủ công (reclaim).
+ *    4) Nếu vẫn không có chỗ, gọi syscall `sys_memmap` (SYSCALL 17 với
+ *       `SYSMEM_INC_OP`) để tăng limit của VMA (sbrk-like), rồi cấp vùng
+ *       bắt đầu từ `old_sbrk`.
+ *  - Trả địa chỉ đầu vùng qua `*alloc_addr` và trả 0 khi thành công.
+ *
+ * Lưu ý / Hạn chế:
+ *  - Hàm giả định syscall tăng limit thành công; nên kiểm tra kết quả syscall
+ *    và rollback nếu thất bại (hiện chưa có).
+ *  - Nên kiểm tra `rgid` hợp lệ trước khi ghi vào `symrgtbl`.
+ *  - Hàm khóa toàn cục `mmvm_lock` trong suốt quá trình; có thể tối ưu
+ *    bằng khóa theo-VMA nếu cần song song cao.
  */
 int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *alloc_addr)
 {
@@ -74,7 +94,7 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *allo
   struct vm_rg_struct rgnode;
   struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
   int inc_sz=0;
-
+  // cấp phát vùng nhớ ảo trong VMA chỉ định thông qua rgid
   if (get_free_vmrg_area(caller, vmaid, size, &rgnode) == 0)
   {
     caller->krnl->mm->symrgtbl[rgid].rg_start = rgnode.rg_start;
@@ -86,49 +106,6 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *allo
     return 0;
   }
     /* TODO get_free_vmrg_area FAILED handle the region management (Fig.6)*/
-    /* Attempt to reclaim from freerg_list */
-    struct vm_rg_struct *freerg = cur_vma->vm_freerg_list;
-    struct vm_rg_struct *prev = NULL;
-    while (freerg != NULL)
-    {
-      addr_t freerg_size = freerg->rg_end - freerg->rg_start;
-      if (freerg_size >= size)
-      {
-        /* Found suitable free region */
-        caller->krnl->mm->symrgtbl[rgid].rg_start = freerg->rg_start;
-        caller->krnl->mm->symrgtbl[rgid].rg_end = freerg->rg_start + size;
-
-        *alloc_addr = freerg->rg_start;
-
-        /* Update freerg_list */
-        if (freerg_size == size)
-        {
-          /* Exact fit, remove from list */
-          if (prev == NULL)
-          {
-            cur_vma->vm_freerg_list = freerg->rg_next;
-          }
-          else
-          {
-            prev->rg_next = freerg->rg_next;
-          }
-          free(freerg);
-        }
-        else
-        {
-          /* Partial fit, adjust start */
-          freerg->rg_start += size;
-        }
-
-        pthread_mutex_unlock(&mmvm_lock);
-        return 0;
-      }
-      prev = freerg;
-      freerg = freerg->rg_next;
-  }
-
-  /* TODO get_free_vmrg_area FAILED handle the region management (Fig.6)*/
-
   /*Attempt to increate limit to get space */
 #ifdef MM64
   inc_sz = (uint32_t)(size/(int)PAGING64_PAGESZ);
@@ -172,6 +149,7 @@ int __alloc(struct pcb_t *caller, int vmaid, int rgid, addr_t size, addr_t *allo
  *@size: allocated size
  *
  */
+// hàm giải phóng một vùng nhớ ảo của tiến trình
 int __free(struct pcb_t *caller, int vmaid, int rgid)
 {
   pthread_mutex_lock(&mmvm_lock);
@@ -210,6 +188,7 @@ int __free(struct pcb_t *caller, int vmaid, int rgid)
  *@size: allocated size
  *@reg_index: memory region ID (used to identify variable in symbole table)
  */
+// hàm thư viện cấp phát vùng nhớ ảo cho tiến trình
 int liballoc(struct pcb_t *proc, addr_t size, uint32_t reg_index)
 {
   addr_t  addr;
@@ -265,50 +244,71 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
 
   uint32_t pte = pte_get_entry(caller, pgn);
 
+  /* Nếu trang chưa hiện diện trong RAM */
   if (!PAGING_PAGE_PRESENT(pte))
-  { /* Page is not online, make it actively living */
+  { 
     addr_t vicpgn, swpfpn;
-//    addr_t vicfpn;
-//    addr_t vicpte;
-//  struct sc_regs regs;
 
-    /* TODO Initialize the target frame storing our variable */
-//  addr_t tgtfpn 
-
-    /* TODO: Play with your paging theory here */
-    /* Find victim page */
+    /* Tìm trang nạn nhân (victim page) để đẩy ra ngoài swap */
     if (find_victim_page(caller->krnl->mm, &vicpgn) == -1)
     {
-      return -1;
+      return -1;   // Không tìm được victim page
     }
 
-    /* Get free frame in MEMSWP */
+    /* Lấy một frame trống trong vùng swap */
     if (MEMPHY_get_freefp(caller->krnl->active_mswp, &swpfpn) == -1)
     {
-      return -1;
+      return -1;   // Không còn frame trống trong swap
     }
 
-    /* TODO: Implement swap frame from MEMRAM to MEMSWP and vice versa*/
+    /* Bắt đầu cơ chế hoán trang (swap):
+       - Copy nội dung frame của victim từ RAM → SWAP
+       - Đánh dấu victim là 'bị swap'
+       - Tái sử dụng frame RAM của victim cho trang đang cần nạp
+    */
+    {
+      uint32_t vic_pte = pte_get_entry(caller, vicpgn);
+      addr_t vicfpn = PAGING_FPN(vic_pte);
+      struct memphy_struct *mram = caller->krnl->mram;
+      struct memphy_struct *mswp = caller->krnl->active_mswp;
 
-    /* TODO copy victim frame to swap 
-     * SWP(vicfpn <--> swpfpn)
-     * SYSCALL 1 sys_memmap
-     */
+      /* Kiểm tra hợp lệ: victim phải đang có mặt trong RAM */
+      if (!PAGING_PAGE_PRESENT(vic_pte)) {
+        MEMPHY_put_freefp(mswp, swpfpn);
+        return -1;
+      }
 
+      /* Sao chép dữ liệu frame của victim từ RAM sang SWAP */
+      if (__swap_cp_page(mram, vicfpn, mswp, swpfpn) != 0) {
+        MEMPHY_put_freefp(mswp, swpfpn);
+        return -1;   // Lỗi copy
+      }
 
-    /* Update page table */
-    //pte_set_swap(...);
+      /* Cập nhật PTE của victim:
+         - đặt trạng thái swapped
+         - lưu offset của frame trong swap
+      */
+      pte_set_swap(caller, vicpgn, 0, swpfpn);
 
-    /* Update its online status of the target page */
-    //pte_set_fpn(...);
+      /* Gán lại frame RAM của victim cho trang pgn đang cần */
+      if (pte_set_fpn(caller, pgn, vicfpn) != 0) {
+        /* Nếu gán frame lỗi → phục hồi lại PTE của victim */
+        pte_set_fpn(caller, vicpgn, vicfpn);
+        MEMPHY_put_freefp(mswp, swpfpn);
+        return -1;
+      }
 
-    enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
+      /* Ghi nhận trang pgn vừa được đưa vào RAM vào danh sách FIFO */
+      enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn);
+    }
   }
 
+  /* Trả về frame number đã map */
   *fpn = PAGING_FPN(pte_get_entry(caller,pgn));
 
   return 0;
 }
+
 
 /*pg_getval - read value at given offset
  *@mm: memory region
@@ -318,20 +318,27 @@ int pg_getpage(struct mm_struct *mm, int pgn, int *fpn, struct pcb_t *caller)
  */
 int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
 {
+  /* Tách địa chỉ ảo thành:
+     - pgn: số trang ảo
+     - off: offset trong trang
+  */
   int pgn = PAGING_PGN(addr);
-//  int off = PAGING_OFFST(addr);
+  int off = PAGING_OFFST(addr);
   int fpn;
 
+  /* Đảm bảo trang pgn đã nằm trong RAM.
+     Nếu trang bị swap-out → pg_getpage sẽ tự swap-in.
+  */
   if (pg_getpage(mm, pgn, &fpn, caller) != 0)
-    return -1; /* invalid page access */
+    return -1; /* truy cập trang lỗi hoặc không hợp lệ */
 
-//  int phyaddr = (fpn << PAGING_ADDR_FPN_LOBIT) + off;
+  /* Tính địa chỉ vật lý: physical address = frame number + offset */
+  int phyaddr = (fpn << PAGING_ADDR_FPN_LOBIT) + off;
 
-  /* TODO 
-   *  MEMPHY_read(caller->krnl->mram, phyaddr, data);
-   *  MEMPHY READ 
-   *  SYSCALL 17 sys_memmap with SYSMEM_IO_READ
-   */
+  /* Đọc 1 byte từ RAM tại địa chỉ vật lý vừa tính */
+  if (MEMPHY_read(caller->krnl->mram, phyaddr, data) != 0) {
+    return -1;  // đọc thất bại
+  }
 
   return 0;
 }
@@ -344,24 +351,25 @@ int pg_getval(struct mm_struct *mm, int addr, BYTE *data, struct pcb_t *caller)
  */
 int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
 {
+  /* Tách địa chỉ ảo thành số trang và offset */
   int pgn = PAGING_PGN(addr);
-//  int off = PAGING_OFFST(addr);
+  int off = PAGING_OFFST(addr);
   int fpn;
 
-  /* Get the page to MEMRAM, swap from MEMSWAP if needed */
+  /* Đảm bảo trang đã được nạp vào RAM (fault nếu cần) */
   if (pg_getpage(mm, pgn, &fpn, caller) != 0)
-    return -1; /* invalid page access */
+    return -1; /* không thể truy cập trang */
 
+  /* Tính địa chỉ vật lý trong RAM */
+  int phyaddr = (fpn << PAGING_ADDR_FPN_LOBIT) + off;
 
-  /* TODO 
-   *  MEMPHY_write(caller->krnl->mram, phyaddr, value);
-   *  MEMPHY WRITE with SYSMEM_IO_WRITE 
-   * SYSCALL 17 sys_memmap
-   */
+  /* Ghi 1 byte vào RAM tại địa chỉ tính được */
+  if (MEMPHY_write(caller->krnl->mram, phyaddr, value) != 0) {
+    return -1;  // ghi thất bại
+  }
 
   return 0;
 }
-
 /*__read - read value in region memory
  *@caller: caller
  *@vmaid: ID vm area to alloc memory region
@@ -372,15 +380,35 @@ int pg_setval(struct mm_struct *mm, int addr, BYTE value, struct pcb_t *caller)
  */
 int __read(struct pcb_t *caller, int vmaid, int rgid, addr_t offset, BYTE *data)
 {
+  /* Validate inputs and region bounds under mutex */
+  if (!caller || !caller->krnl || !data) return -1;
+
+  pthread_mutex_lock(&mmvm_lock);
   struct vm_rg_struct *currg = get_symrg_byid(caller->krnl->mm, rgid);
+  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
 
-//  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
+  if (!currg || !cur_vma) {
+    pthread_mutex_unlock(&mmvm_lock);
+    return -1;
+  }
 
-  /* TODO Invalid memory identify */
+  /* Check region initialized and offset in-range (ranges are [start, end) ) */
+  if (currg->rg_start >= currg->rg_end) {
+    pthread_mutex_unlock(&mmvm_lock);
+    return -1;
+  }
 
-  pg_getval(caller->krnl->mm, currg->rg_start + offset, data, caller);
+  addr_t rsize = currg->rg_end - currg->rg_start;
+  if (offset < 0 || (addr_t)offset >= rsize) {
+    pthread_mutex_unlock(&mmvm_lock);
+    return -1;
+  }
 
-  return 0;
+  addr_t vaddr = currg->rg_start + offset;
+  int ret = pg_getval(caller->krnl->mm, vaddr, data, caller);
+
+  pthread_mutex_unlock(&mmvm_lock);
+  return ret;
 }
 
 /*libread - PAGING-based read a region memory */
@@ -579,4 +607,4 @@ int get_free_vmrg_area(struct pcb_t *caller, int vmaid, int size, struct vm_rg_s
   return 0;
 }
 
-// #endif
+//#endif

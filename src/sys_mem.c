@@ -27,10 +27,48 @@ int __sys_memmap(struct krnl_t *krnl, uint32_t pid, struct sc_regs* regs)
    int memop = regs->a1;
    BYTE value;
    
-   /* TODO THIS DUMMY CREATE EMPTY PROC TO AVOID COMPILER NOTIFY 
-    *      need to be eliminated
-	*/
-   struct pcb_t *caller = malloc(sizeof(struct pcb_t));
+   /* Find caller PCB by PID in kernel queues instead of allocating a dummy */
+   struct pcb_t *caller = NULL;
+
+   if (krnl == NULL) {
+       printf("__sys_memmap: NULL krnl\n");
+       return -1;
+   }
+
+   /* Search running list */
+   if (krnl->running_list) {
+       for (int i = 0; i < krnl->running_list->size; i++) {
+           struct pcb_t *p = krnl->running_list->proc[i];
+           if (p && p->pid == pid) { caller = p; break; }
+       }
+   }
+
+   /* Search ready queue if not found */
+   if (caller == NULL && krnl->ready_queue) {
+       for (int i = 0; i < krnl->ready_queue->size; i++) {
+           struct pcb_t *p = krnl->ready_queue->proc[i];
+           if (p && p->pid == pid) { caller = p; break; }
+       }
+   }
+
+#ifdef MLQ_SCHED
+   /* Search MLQ ready queues if still not found */
+   if (caller == NULL && krnl->mlq_ready_queue) {
+       for (int pr = 0; pr < MAX_PRIO && caller == NULL; pr++) {
+           struct queue_t *mq = &krnl->mlq_ready_queue[pr];
+           for (int i = 0; i < mq->size; i++) {
+               struct pcb_t *p = mq->proc[i];
+               if (p && p->pid == pid) { caller = p; break; }
+           }
+       }
+   }
+#endif
+
+   if (caller == NULL) {
+       /* PID not found in kernel queues; return error */
+       printf("__sys_memmap: PID %u not found\n", pid);
+       return -1;
+   }
 
    /*
     * @bksysnet: Please note in the dual spacing design

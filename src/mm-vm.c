@@ -67,7 +67,7 @@ struct vm_rg_struct *get_vm_area_node_at_brk(struct pcb_t *caller, int vmaid, ad
   if (!caller || !caller->krnl || !caller->krnl->mm)
     return NULL;
   /* Lấy vm area hiện tại dựa trên vmaid */
-  struct vm_area_struct *cur_vma = get_vma_by_num(caller->kernl->mm, vmaid);
+  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
   if (cur_vma == NULL)
     return NULL;
   /* 
@@ -199,4 +199,4 @@ int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
   return 0;
 }
 
-// #endif
+//#endif

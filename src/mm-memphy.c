@@ -8,7 +8,7 @@
  * for the sole purpose of studying while attending the course CO2018.
  */
 
-// #ifdef MM_PAGING
+//#ifdef MM_PAGING
 /*
  * PAGING based Memory Management
  * Memory physical module mm/mm-memphy.c
@@ -212,4 +212,4 @@ int init_memphy(struct memphy_struct *mp, addr_t max_size, int randomflg)
    return 0;
 }
 
-// #endif
+//#endif
