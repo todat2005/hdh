@@ -16,6 +16,9 @@
 
 #include "string.h"
 #include "mm.h"
+#ifdef MM64
+#include "mm64.h"
+#endif
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -64,10 +67,10 @@ struct vm_rg_struct *get_vm_area_node_at_brk(struct pcb_t *caller, int vmaid, ad
   struct vm_rg_struct * newrg;
   /* TODO retrive current vma to obtain newrg, current comment out due to compiler redundant warning*/
   /* Kiểm tra đối số cơ bản: caller, kernel và mm phải tồn tại */
-  if (!caller || !caller->krnl || !caller->krnl->mm)
+  if (!caller || !caller->mm)
     return NULL;
   /* Lấy vm area hiện tại dựa trên vmaid */
-  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
+  struct vm_area_struct *cur_vma = get_vma_by_num(caller->mm, vmaid);
   if (cur_vma == NULL)
     return NULL;
   /* 
@@ -105,42 +108,19 @@ struct vm_rg_struct *get_vm_area_node_at_brk(struct pcb_t *caller, int vmaid, ad
 int validate_overlap_vm_area(struct pcb_t *caller, int vmaid, addr_t vmastart, addr_t vmaend)
 {
   /* TODO validate the planned memory area is not overlapped */
-  if (!caller || !caller->krnl || !caller->krnl->mm)
+  if (!caller || !caller->mm)
     return -1;
 
-  if (vmastart >= vmaend)
-  {
-    return -1;
-  }
+  struct vm_area_struct *vma = caller->mm->mmap;
 
-  struct vm_area_struct *vma = caller->krnl->mm->mmap;
-  if (vma == NULL)
-  {
-    return -1;
-  }
-
-  /* TODO validate the planned memory area is not overlapped */
-
-  struct vm_area_struct *cur_area = get_vma_by_num(caller->krnl->mm, vmaid);
-  if (cur_area == NULL)
-  {
-    return -1;
-  }
-
-  /* Nếu yêu cầu: vùng đề xuất phải nằm trong cur_area */
-  if (vmastart < cur_area->vm_start || vmaend > cur_area->vm_end)
-    return -1;
-
-  /* Duyệt các VM area khác và kiểm tra overlap với khoảng đề xuất [vmastart, vmaend) */
   while (vma != NULL)
   {
-    if (vma != cur_area && OVERLAP(cur_area->vm_start, cur_area->vm_end, vma->vm_start, vma->vm_end))
+    if (vma->vm_id != vmaid && OVERLAP(vmastart, vmaend, vma->vm_start, vma->vm_end))
     {
       return -1;
     }
     vma = vma->vm_next;
   }
-  /* End TODO*/
 
   return 0;
 }
@@ -154,14 +134,18 @@ int validate_overlap_vm_area(struct pcb_t *caller, int vmaid, addr_t vmastart, a
 int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
 {
   /* Kiểm tra đầu vào */
-  if (!caller || !caller->krnl || !caller->krnl->mm || inc_sz == 0)
+  if (!caller || !caller->mm || inc_sz == 0)
     return -1;
 
   /* Căn chỉnh kích thước theo kích thước trang */
+#ifdef MM64
+  addr_t aligned_sz = PAGING64_PAGE_ALIGNSZ(inc_sz);
+#else
   addr_t aligned_sz = PAGING_PAGE_ALIGNSZ(inc_sz);
+#endif
 
   /* Lấy vm area cần tăng giới hạn */
-  struct vm_area_struct *area = get_vma_by_num(caller->krnl->mm, vmaid);
+  struct vm_area_struct *area = get_vma_by_num(caller->mm, vmaid);
   if (area == NULL)
     return -1;  
   /* Lưu giới hạn cũ để phục hồi nếu thất bại */
@@ -178,7 +162,11 @@ int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
   area->vm_end = new_vm_end;
 
   /* Tính số trang cần cấp */
+#ifdef MM64
+  int incnumpage = aligned_sz / PAGING64_PAGESZ;
+#else
   int incnumpage = aligned_sz / PAGING_PAGESZ;
+#endif
 
   /* Tạo region mới để theo dõi vùng vừa cấp */
   struct vm_rg_struct *newrg = malloc(sizeof(struct vm_rg_struct));

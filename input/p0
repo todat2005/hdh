@@ -1,7 +1,0 @@
-1 6
-alloc 0 0
-alloc 0 1
-free 0
-alloc 0 2
-write 1 1 0
-write 1 2 0

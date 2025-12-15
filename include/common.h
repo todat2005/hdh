@@ -106,11 +106,12 @@ struct pcb_t
 	addr_t regs[10];	 // Registers, store address of allocated regions
 	uint32_t pc;		 // Program pointer, point to the next instruction
 #ifdef MLQ_SCHED
-	// Priority on execution (if supported), on-fly aka. changeable
-	// and this vale overwrites the default priority when it existed
 	uint32_t prio;
 #endif
-	struct krnl_t *krnl;	
+	struct krnl_t *krnl;
+#ifdef MM_PAGING
+	struct mm_struct *mm;
+#endif
 	struct page_table_t *page_table; // Page table
 	uint32_t bp;			 // Break pointer
 };

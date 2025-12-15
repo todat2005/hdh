@@ -123,8 +123,8 @@ static void * ld_routine(void * args) {
 			next_slot(timer_id);
 		}
 #ifdef MM_PAGING
-		krnl->mm = malloc(sizeof(struct mm_struct));
-		init_mm(krnl->mm, proc);
+		proc->mm = malloc(sizeof(struct mm_struct));
+		init_mm(proc->mm, proc);
 		krnl->mram = mram;
 		krnl->mswp = mswp;
 		krnl->active_mswp = active_mswp;
@@ -163,8 +163,9 @@ static void read_config(const char * path) {
          */
         memramsz    =  0x100000;
         memswpsz[0] = 0x1000000;
-	for(sit = 1; sit < PAGING_MAX_MMSWP; sit++)
-		memswpsz[sit] = 0;
+			proc->mm = malloc(sizeof(struct mm_struct));
+			init_mm(proc->mm, proc);
+			/* Keep kernel-wide memory devices shared, but mm is per-process */
 #else
 	/* Read input config of memory size: MEMRAM and upto 4 MEMSWP (mem swap)
 	 * Format: (size=0 result non-used memswap, must have RAM and at least 1 SWAP)
