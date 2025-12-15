@@ -108,7 +108,7 @@ int get_pd_from_pagenum(addr_t pgn, addr_t* pgd, addr_t* p4d, addr_t* pud, addr_
  */
 int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
 {
-  if (!caller || !caller->mm) return -1;
+  if (!caller || !caller->krnl->mm) return -1;
 
   addr_t *pte;
   addr_t pgd=0;
@@ -124,7 +124,7 @@ int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
   get_pd_from_pagenum(pgn, &pgd, &p4d, &pud, &pmd, &pt);
 
   /* Walk/allocate page table levels */
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
 
   if (mm->pgd[pgd] == 0) {
       mm->pgd[pgd] = (uint64_t)malloc(512 * sizeof(uint64_t));
@@ -152,7 +152,7 @@ int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
   pte = (addr_t *)&pt_table[pt];
   
 #else
-  pte = &caller->mm->pgd[pgn];
+  pte = &caller->krnl->mm->pgd[pgn];
 #endif
 
   SETBIT(*pte, PAGING_PTE_PRESENT_MASK);
@@ -171,7 +171,7 @@ int pte_set_swap(struct pcb_t *caller, addr_t pgn, int swptyp, addr_t swpoff)
  */
 int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
 {
-  if (!caller || !caller->mm) return -1;
+  if (!caller || !caller->krnl->mm) return -1;
 
   addr_t *pte;
   addr_t pgd=0;
@@ -188,7 +188,7 @@ int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
   get_pd_from_pagenum(pgn, &pgd, &p4d, &pud, &pmd, &pt);
 
   //Use tree walk to get the pte
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
 
   if (mm->pgd[pgd] == 0) {
       mm->pgd[pgd] = (uint64_t)malloc(512 * sizeof(uint64_t));
@@ -217,7 +217,7 @@ int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
   pte = (addr_t *)&pt_table[pt];
 
 #else
-  pte = &caller->mm->pgd[pgn];
+  pte = &caller->krnl->mm->pgd[pgn];
 #endif
 
   SETBIT(*pte, PAGING_PTE_PRESENT_MASK);
@@ -236,7 +236,7 @@ int pte_set_fpn(struct pcb_t *caller, addr_t pgn, addr_t fpn)
  **/
 uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
 {
-  if (!caller || !caller->mm) return -1;
+  if (!caller || !caller->krnl->mm) return -1;
   uint32_t pte = 0;
   addr_t pgd=0;
   addr_t p4d=0;
@@ -248,7 +248,7 @@ uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
   get_pd_from_pagenum(pgn, &pgd, &p4d, &pud, &pmd, &pt);
 	
   //Use tree walk to get the pte
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
 
   if (mm->pgd[pgd]) {
       uint64_t *p4d_table = (uint64_t *)mm->pgd[pgd];
@@ -276,7 +276,7 @@ uint32_t pte_get_entry(struct pcb_t *caller, addr_t pgn)
  **/
 int pte_set_entry(struct pcb_t *caller, addr_t pgn, uint32_t pte_val)
 {
-  if (!caller || !caller->mm) return -1;
+  if (!caller || !caller->krnl->mm) return -1;
 
   addr_t pgd=0;
   addr_t p4d=0;
@@ -287,7 +287,7 @@ int pte_set_entry(struct pcb_t *caller, addr_t pgn, uint32_t pte_val)
   /* TODO Perform multi-level page mapping */
   get_pd_from_pagenum(pgn, &pgd, &p4d, &pud, &pmd, &pt);
   //Use tree walk to get the pte
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
   if (mm->pgd[pgd]) {
     uint64_t *p4d_table = (uint64_t *)mm->pgd[pgd];
     if (p4d_table[p4d]) {
@@ -320,7 +320,7 @@ int vmap_pgd_memset(struct pcb_t *caller,           // process call
   /* TODO memset the page table with given pattern
    */
 
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
   addr_t pgd_idx, p4d_idx, pud_idx, pmd_idx, pt_idx;
 
   for (pgit = 0; pgit < pgnum; pgit++) 
@@ -376,7 +376,7 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
   struct framephy_struct *fpit = frames;
   int pgit = 0;
   addr_t pgn;
-  struct mm_struct *mm = caller->mm;
+  struct mm_struct *mm = caller->krnl->mm;
 
   /* TODO: update the rg_end and rg_start of ret_rg 
   //ret_rg->rg_end =  ....
@@ -391,13 +391,13 @@ addr_t vmap_page_range(struct pcb_t *caller,           // process call
 
   /* TODO map range of frame to address space
    *      [addr to addr + pgnum*PAGING_PAGESZ
-  *      in page table caller->mm->pgd,
-  *                    caller->mm->pud...
+  *      in page table caller->krnl->mm->pgd,
+  *                    caller->krnl->mm->pud...
    *                    ...
    */
 
   
-  //enlist_pgn_node(&caller->mm->fifo_pgn, pgn64 + pgit);
+  //enlist_pgn_node(&caller->krnl->mm->fifo_pgn, pgn64 + pgit);
 
   // Vòng lặp duyệt qua số lượng trang cần map (pgnum)
   for(pgit = 0; pgit < pgnum; pgit++) 
@@ -701,7 +701,7 @@ int print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
 
   if(end == -1){
     pgn_start = 0;
-    struct vm_area_struct *vma = get_vma_by_num(caller->mm, 0);
+    struct vm_area_struct *vma = get_vma_by_num(caller->krnl->mm, 0);
     if (!vma) return -1;
     end = vma->vm_end;
   }
@@ -718,7 +718,7 @@ int print_pgtbl(struct pcb_t *caller, addr_t start, addr_t end)
   {
       get_pd_from_pagenum(pgn, &pgd_idx, &p4d_idx, &pud_idx, &pmd_idx, &pt_idx);
       
-      struct mm_struct *mm = caller->mm;
+      struct mm_struct *mm = caller->krnl->mm;
       uint64_t pgd_val = 0;
       uint64_t p4d_val = 0;
       uint64_t pud_val = 0;

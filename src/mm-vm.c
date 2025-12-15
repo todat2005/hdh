@@ -67,10 +67,10 @@ struct vm_rg_struct *get_vm_area_node_at_brk(struct pcb_t *caller, int vmaid, ad
   struct vm_rg_struct * newrg;
   /* TODO retrive current vma to obtain newrg, current comment out due to compiler redundant warning*/
   /* Kiểm tra đối số cơ bản: caller, kernel và mm phải tồn tại */
-  if (!caller || !caller->mm)
+  if (!caller || !caller->krnl->mm)
     return NULL;
   /* Lấy vm area hiện tại dựa trên vmaid */
-  struct vm_area_struct *cur_vma = get_vma_by_num(caller->mm, vmaid);
+  struct vm_area_struct *cur_vma = get_vma_by_num(caller->krnl->mm, vmaid);
   if (cur_vma == NULL)
     return NULL;
   /* 
@@ -108,10 +108,10 @@ struct vm_rg_struct *get_vm_area_node_at_brk(struct pcb_t *caller, int vmaid, ad
 int validate_overlap_vm_area(struct pcb_t *caller, int vmaid, addr_t vmastart, addr_t vmaend)
 {
   /* TODO validate the planned memory area is not overlapped */
-  if (!caller || !caller->mm)
+  if (!caller || !caller->krnl->mm)
     return -1;
 
-  struct vm_area_struct *vma = caller->mm->mmap;
+  struct vm_area_struct *vma = caller->krnl->mm->mmap;
 
   while (vma != NULL)
   {
@@ -134,7 +134,7 @@ int validate_overlap_vm_area(struct pcb_t *caller, int vmaid, addr_t vmastart, a
 int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
 {
   /* Kiểm tra đầu vào */
-  if (!caller || !caller->mm || inc_sz == 0)
+  if (!caller || !caller->krnl->mm || inc_sz == 0)
     return -1;
 
   /* Căn chỉnh kích thước theo kích thước trang */
@@ -145,7 +145,7 @@ int inc_vma_limit(struct pcb_t *caller, int vmaid, addr_t inc_sz)
 #endif
 
   /* Lấy vm area cần tăng giới hạn */
-  struct vm_area_struct *area = get_vma_by_num(caller->mm, vmaid);
+  struct vm_area_struct *area = get_vma_by_num(caller->krnl->mm, vmaid);
   if (area == NULL)
     return -1;  
   /* Lưu giới hạn cũ để phục hồi nếu thất bại */

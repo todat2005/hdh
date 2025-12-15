@@ -123,8 +123,6 @@ static void * ld_routine(void * args) {
 			next_slot(timer_id);
 		}
 #ifdef MM_PAGING
-		proc->mm = malloc(sizeof(struct mm_struct));
-		init_mm(proc->mm, proc);
 		krnl->mram = mram;
 		krnl->mswp = mswp;
 		krnl->active_mswp = active_mswp;
@@ -163,9 +161,6 @@ static void read_config(const char * path) {
          */
         memramsz    =  0x100000;
         memswpsz[0] = 0x1000000;
-			proc->mm = malloc(sizeof(struct mm_struct));
-			init_mm(proc->mm, proc);
-			/* Keep kernel-wide memory devices shared, but mm is per-process */
 #else
 	/* Read input config of memory size: MEMRAM and upto 4 MEMSWP (mem swap)
 	 * Format: (size=0 result non-used memswap, must have RAM and at least 1 SWAP)
@@ -247,6 +242,10 @@ int main(int argc, char * argv[]) {
 	mm_ld_args->mswp = (struct memphy_struct**) &mswp;
 	mm_ld_args->active_mswp = (struct memphy_struct *) &mswp[0];
         mm_ld_args->active_mswp_id = 0;
+
+	/* Initialize shared kernel mm structure */
+	os.mm = malloc(sizeof(struct mm_struct));
+	init_mm(os.mm, NULL);
 #endif
 
 	/* Init scheduler */

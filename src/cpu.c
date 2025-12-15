@@ -139,6 +139,7 @@ int run(struct pcb_t *proc)
 
     case SYSCALL:
         stat = libsyscall(proc, ins.arg_0, ins.arg_1, ins.arg_2, ins.arg_3);
+        if(stat == 0) return 0;
         break;
 
     default:
